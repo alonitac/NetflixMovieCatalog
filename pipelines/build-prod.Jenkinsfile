@@ -1,10 +1,10 @@
 pipeline {
     agent {
-    label 'general'
+        label 'general'
     }
 
     triggers {
-        githubPush()   // trigger the pipeline upon push event in github
+        githubPush()
     }
 
     options {
@@ -13,11 +13,8 @@ pipeline {
     }
 
     environment {
-        // GIT_COMMIT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-        // TIMESTAMP = new Date().format("yyyyMMdd-HHmmss")
-
         IMAGE_TAG = "v1.0.$BUILD_NUMBER"
-        IMAGE_BASE_NAME = "netflix-app"
+        IMAGE_BASE_NAME = "netflix-movie-catalog-prod"
 
         DOCKER_CREDS = credentials('dockerhub')
         DOCKER_USERNAME = "${DOCKER_CREDS_USR}"  // The _USR suffix added to access the username value
@@ -33,26 +30,22 @@ pipeline {
             }
         }
 
-        stage('Build & Push') {
+        stage('Build app container') {
             steps {
                 sh '''
-                  IMAGE_FULL_NAME=$DOCKER_USERNAME/$IMAGE_BASE_NAME:$IMAGE_TAG
-
-                  docker build -t $IMAGE_FULL_NAME .
-                  docker push $IMAGE_FULL_NAME
+                    IMAGE_FULL_NAME=$DOCKER_USERNAME/$IMAGE_BASE_NAME:$IMAGE_TAG
+                    docker build -t $IMAGE_FULL_NAME .
+                    docker push $IMAGE_FULL_NAME
                 '''
             }
         }
+        stage('Trigger Deploy') {
+            steps {
+                build job: 'NetflixDeployProd', wait: false, parameters: [
+                    string(name: 'SERVICE_NAME', value: "NetflixMovieCatalog"),
+                    string(name: 'IMAGE_FULL_NAME_PARAM', value: "$DOCKER_USERNAME/$IMAGE_BASE_NAME:$IMAGE_TAG")
+                ]
+            }
+        }
     }
-}
-
-         stage('Trigger Deploy') {
-             steps {
-                 build job: 'NetflixDeploy', wait: false, parameters: [
-                     string(name: 'SERVICE_NAME', value: "NetflixFrontend")
-                     string(name: 'IMAGE_FULL_NAME_PARAM', value: "$IMAGE_FULL_NAME")
-                 ]
-             }
-         }
-
 }
