@@ -1,35 +1,52 @@
-name: Netflix Movie Catalog Service Deployment
+name: NetflixFrontend stack build-deploy
 
 on:
   push:
     branches:
       - main
 
-env:
-  EC2_PUBLIC_IP: X.X.X.X  # TODO replace to your EC2 instance public IP
-  SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}  # TODO define this secret in your GitHub repo settings
+permissions:
+  contents: write
 
 jobs:
-  Deploy:
-    name: Deploy in EC2
+  build:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout the app code
-        uses: actions/checkout@v2
 
-      - name: SSH to EC2 instance
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Build and push docker images
         run: |
-          echo "$SSH_PRIVATE_KEY" > mykey.pem
-          chmod 400 mykey.pem
-          
-          # Copy the files from the current wrok dir into the EC2 instance, under `~/app`.
-          scp -i mykey.pem -r . ubuntu@$EC2_PUBLIC_IP:~/app
-          
-          # Connect to your EC2 instance and execute the `deploy.sh` script (this script is part of the repo files). 
-          # You need to implement the `deploy.sh` script yourself.
-          #
-          # Upon completion, the NetflixMovieCatalog app should be running with its newer version. 
-          # To keep the app running in the background independently on the terminal session you are logging to, configure it as a Linux service.
-    
-          ssh -i mykey.pem ubuntu@$EC2_PUBLIC_IP "bash ~/app/deploy.sh"
-          
+          # Login to DockerHub         
+          docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_PASSWORD }}
+
+          # Build and push Docker image
+          NETFLIX_MOVIE_CATALOG_IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/netflixmoviecatalog:0.0.${{ github.run_number }}
+          docker build -t $NETFLIX_MOVIE_CATALOG_IMAGE_NAME .
+          docker push $NETFLIX_MOVIE_CATALOG_IMAGE_NAME
+
+      - name: Checkout infrastructure repo
+        uses: actions/checkout@v3
+        with:
+          repository: yaelwil/NetflixInfra
+          token: ${{ secrets.REPO_TOKEN }}
+          path: NetflixInfra
+
+      - name: Update YAML manifests
+        run: |
+          NETFLIX_MOVIE_CATALOG_IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/netflixmoviecatalog:0.0.${{ github.run_number }}
+          cd NetflixInfra/k8s/NetflixMovieCatalog
+          sed -i "s|image: .*|image: ${NETFLIX_MOVIE_CATALOG_IMAGE_NAME}|" catalog.yaml
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "you@example.com"
+          git config --global user.name "Your Name"
+
+      - name: Commit and Push changes
+        run: |
+          cd NetflixInfra
+          git add *
+          git commit -m "Changes to the repo ${{ github.run_number }}"
+          git push origin main
