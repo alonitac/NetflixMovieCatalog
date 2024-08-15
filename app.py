@@ -20,6 +20,7 @@ def home():
 
 
 
+
 @app.route('/discover')
 def get_discover():
     """
